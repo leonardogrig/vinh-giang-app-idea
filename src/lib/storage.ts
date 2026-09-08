@@ -1,5 +1,6 @@
 "use client";
 
+import { coerceModel } from "./config";
 import { FRAME_SETTINGS, type FrameSetting } from "./frame";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import type { Attempt, StoredAttempt } from "./types";
@@ -98,10 +99,7 @@ async function loadSettings(): Promise<Settings> {
 function normalizeSettings(stored: Partial<Settings> | null | undefined): Settings {
   return {
     targetSecs: Number(stored?.targetSecs) || DEFAULT_SETTINGS.targetSecs,
-    model:
-      typeof stored?.model === "string" && stored.model.trim()
-        ? stored.model.trim()
-        : DEFAULT_SETTINGS.model,
+    model: coerceModel(typeof stored?.model === "string" ? stored.model : null),
     frame: FRAME_SETTINGS.includes(stored?.frame as FrameSetting)
       ? (stored!.frame as FrameSetting)
       : DEFAULT_SETTINGS.frame,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DEFAULT_OPENROUTER_MODEL } from "@/lib/config";
+import { coerceModel, DEFAULT_OPENROUTER_MODEL } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -42,8 +42,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No training data was sent." }, { status: 400 });
   }
 
-  const model =
-    body.model?.trim() || process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL;
+  const model = coerceModel(
+    body.model?.trim() || process.env.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL,
+  );
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiKey}`,

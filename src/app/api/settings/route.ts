@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { coerceModel } from "@/lib/config";
 import { ensureSchema, pool } from "@/lib/db";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/settings";
 
@@ -11,7 +12,8 @@ export async function GET() {
     await ensureSchema();
     const { rows } = await pool().query(`SELECT data FROM app_settings WHERE id = 1`);
     const stored = rows[0]?.data as Partial<Settings> | undefined;
-    return NextResponse.json({ ...DEFAULT_SETTINGS, ...stored });
+    const merged = { ...DEFAULT_SETTINGS, ...stored };
+    return NextResponse.json({ ...merged, model: coerceModel(merged.model) });
   } catch (err) {
     return NextResponse.json({ error: message(err) }, { status: 500 });
   }
@@ -25,7 +27,7 @@ export async function PUT(request: Request) {
     await pool().query(
       `INSERT INTO app_settings (id, data) VALUES (1, $1)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-      [{ ...DEFAULT_SETTINGS, ...next }],
+      [{ ...DEFAULT_SETTINGS, ...next, model: coerceModel(next?.model) }],
     );
     return NextResponse.json({ ok: true });
   } catch (err) {
