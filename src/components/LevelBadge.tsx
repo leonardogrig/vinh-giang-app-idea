@@ -7,7 +7,7 @@ export function LevelBadge({ progress }: { progress: Progress }) {
   const atCap = progress.level >= MAX_LEVEL;
 
   return (
-    <div className="min-w-[210px] rounded-2xl border border-ink-800 bg-ink-900/50 px-4 py-3">
+    <div className="w-full rounded-2xl border border-ink-800 bg-ink-900/50 px-4 py-3 sm:w-auto sm:min-w-[210px]">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-xs uppercase tracking-[0.18em] text-ink-400">
           Level <span className="text-flame-300">{progress.level}</span> of {MAX_LEVEL}

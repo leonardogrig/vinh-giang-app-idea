@@ -238,7 +238,8 @@ export default function AnalyticsPage() {
               <h2 className="text-sm font-medium uppercase tracking-[0.18em] text-ink-400">
                 First {analytics.comparisonWindow} reps vs last {analytics.comparisonWindow}
               </h2>
-              <table className="mt-3 w-full text-sm">
+              <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[340px] text-sm">
                 <thead>
                   <tr className="text-[11px] uppercase tracking-[0.12em] text-ink-500">
                     <th className="pb-1 text-left font-normal">Metric</th>
@@ -253,6 +254,7 @@ export default function AnalyticsPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
               <p className="mt-3 text-[11px] leading-relaxed text-ink-500">
                 Read this next to the difficulty chart. A flat score against rising word tiers is
                 real improvement; a rising score on easy words is not.

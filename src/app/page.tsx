@@ -417,7 +417,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
           <Link
             href="/analytics"
             className="rounded-xl border border-ink-700 px-4 py-2 text-xs text-ink-300 transition hover:border-flame-500/50 hover:text-flame-200"
