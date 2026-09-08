@@ -1,17 +1,19 @@
 "use client";
 
 import { DEFAULT_OPENROUTER_MODEL } from "./config";
+import { FRAME_SETTINGS, type FrameSetting } from "./frame";
 import type { Attempt, StoredAttempt } from "./types";
 
 const HISTORY_KEY = "mind-mouth:history:v1";
 const SETTINGS_KEY = "mind-mouth:settings:v1";
 const HISTORY_LIMIT = 50;
 
-export type Settings = { targetSecs: number; model: string };
+export type Settings = { targetSecs: number; model: string; frame: FrameSetting };
 
 export const DEFAULT_SETTINGS: Settings = {
   targetSecs: 60,
   model: DEFAULT_OPENROUTER_MODEL,
+  frame: "auto",
 };
 
 const EMPTY_HISTORY: StoredAttempt[] = [];
@@ -136,6 +138,9 @@ export function readSettings(): Settings {
       typeof stored?.model === "string" && stored.model.trim()
         ? stored.model.trim()
         : DEFAULT_SETTINGS.model,
+    frame: FRAME_SETTINGS.includes(stored?.frame as FrameSetting)
+      ? stored.frame
+      : DEFAULT_SETTINGS.frame,
   };
 }
 

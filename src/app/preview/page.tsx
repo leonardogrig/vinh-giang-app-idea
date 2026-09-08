@@ -2,6 +2,7 @@
 
 import { ResultsPanel } from "@/components/ResultsPanel";
 import { computeMetrics } from "@/lib/metrics";
+import { labelFor, type Prosody } from "@/lib/prosody";
 import { buildScorecard } from "@/lib/scoring";
 import type { ScribeWord } from "@/lib/types";
 
@@ -17,6 +18,46 @@ const SCRIPT: [string, number][] = [
   ["that's", 0], ["sort", 0], ["of", 0], ["what", 0], ["life", 0], ["feels", 0],
   ["like", 0], ["sometimes", 0],
 ];
+
+/** A plausible voice reading: lively opening, a flat middle, a fade at the end. */
+function mockProsody(durationSecs: number): Prosody {
+  const points = 240;
+  const pitch: (number | null)[] = [];
+  const energy: number[] = [];
+  let seed = 7;
+  const noise = () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280 - 0.5;
+  };
+  for (let i = 0; i < points; i += 1) {
+    const t = i / points;
+    const speaking = !(t < 0.06 || (t > 0.36 && t < 0.4) || (t > 0.63 && t < 0.69));
+    const swing = t < 0.35 ? 3.2 : t < 0.65 ? 0.6 : 1.8;
+    const contour = Math.sin(t * 41) * swing + Math.sin(t * 7) * (swing / 2) + noise() * 0.6;
+    pitch.push(speaking ? Math.round((contour - (t > 0.65 ? t * 2 : 0)) * 100) / 100 : null);
+    energy.push(speaking ? Math.round((0.45 + 0.4 * Math.abs(Math.sin(t * 53)) + noise() * 0.1) * 100) / 100 : 0.05);
+  }
+  const score = 46;
+  return {
+    medianPitchHz: 118,
+    pitchSdSt: 1.9,
+    pitchRangeSt: 6.4,
+    loudnessSdDb: 4.6,
+    loudnessRangeDb: 14.8,
+    paceCv: 0.14,
+    paceRangeWpm: [112, 168],
+    longestFlatStretchSecs: 7.5,
+    voicedSecs: Math.round(durationSecs * 0.62 * 10) / 10,
+    thirds: [
+      { pitchSdSt: 2.9, loudnessDb: 1.1, wpm: 128, voicedRatio: 0.66 },
+      { pitchSdSt: 0.8, loudnessDb: 0.3, wpm: 151, voicedRatio: 0.7 },
+      { pitchSdSt: 1.7, loudnessDb: -1.6, wpm: 104, voicedRatio: 0.52 },
+    ],
+    contour: { pitch, energy },
+    varietyScore: score,
+    label: labelFor(score),
+  };
+}
 
 function mock() {
   const words: ScribeWord[] = [];
@@ -35,6 +76,7 @@ function mock() {
     audioDurationSecs: t + 0.8,
   };
   const metrics = computeMetrics(transcript);
+  const prosody = mockProsody(transcript.audioDurationSecs);
   const evaluation = {
     relevanceScore: 68,
     structureScore: 52,
@@ -61,8 +103,10 @@ function mock() {
     targetSecs: 60,
     transcript,
     metrics,
+    prosody,
+    frame: "cues" as const,
     evaluation,
-    scorecard: buildScorecard(metrics, evaluation, 60),
+    scorecard: buildScorecard(metrics, evaluation, 60, prosody),
     cost: {
       transcription: { usd: 0.0018, basis: "29.4s of audio at $0.22/hour" },
       evaluation: {

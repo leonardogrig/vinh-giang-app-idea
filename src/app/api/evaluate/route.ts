@@ -54,6 +54,10 @@ You are also told where the speaker sits on a five-level ladder, how hard this w
 - If you are shown your verdict on their last rep, say plainly in the summary whether the same problem is back. Naming a repeated mistake is the single most useful thing you can do.
 - A tier 4 or 5 word is genuinely hard to speak on. Do not tell them the word was easy.
 
+You may also be given MEASURED VOCAL VARIETY: pitch movement in semitones, loudness swing in dB, how much the pace changed, the longest stretch with a flat pitch, and all of that split into opening, middle and closing thirds. It was computed on the speaker's own device from the raw audio and is authoritative. Vocal variety — pace, pitch, volume, pause — is the delivery half of the mind-to-mouth drill, and it is already scored locally, so do not score it yourself. Use it in the feedback when it is the most useful thing to say: a take with a good story and a flat voice should hear about the voice; a voice that faded in the closing third should hear that. For scale, conversational speech moves about 2 to 3 semitones; under 1.5 reads as a monotone; over 3.5 is expressive.
+
+The speaker may have had an ON-SCREEN FRAME — Picture → Moment → Point — as scaffolding. It fades as they climb the ladder and is gone from level 4. Judge structure with that in mind: following the frame is fine and expected; ignoring it and circling is a bigger miss when it was on screen; and when there was no frame, a shape they built themselves is worth more credit.
+
 Be direct and useful. Encouraging, never flattering. A weak take gets a low score and honest feedback — that is how the drill works. Respond with JSON only.`;
 
 type Speaker = {
@@ -62,6 +66,15 @@ type Speaker = {
   recentScores?: number[];
   totalReps?: number;
   lastRepVerdict?: string | null;
+};
+
+/** What each frame mode put on the speaker's screen, in the grader's terms. */
+const FRAME_DESCRIPTION: Record<string, string> = {
+  guided:
+    "Picture → Moment → Point, with a hint under each beat and the current beat lit as the clock ran",
+  cues: "Picture → Moment → Point, with a hint under each beat",
+  labels: "the three words Picture → Moment → Point, nothing else",
+  none: "none — any structure had to come from the speaker",
 };
 
 function buildUserPrompt(input: {
@@ -73,6 +86,8 @@ function buildUserPrompt(input: {
   targetSecs: number;
   transcript: string;
   metrics: Record<string, unknown>;
+  voice?: Record<string, unknown> | null;
+  frame?: string;
 }) {
   const speaker = input.speaker ?? {};
   const form =
@@ -90,9 +105,13 @@ function buildUserPrompt(input: {
     speaker.level ? `THEIR RECENT SCORES AT THIS LEVEL: ${form}` : "",
     speaker.lastRepVerdict ? `YOUR VERDICT ON THEIR LAST REP: ${speaker.lastRepVerdict}` : "",
     `TARGET DURATION: ${input.targetSecs} seconds`,
+    input.frame ? `ON-SCREEN FRAME: ${FRAME_DESCRIPTION[input.frame] ?? input.frame}` : "",
     "",
     "MEASURED DELIVERY METRICS (authoritative, already computed from word-level timestamps):",
     JSON.stringify(input.metrics, null, 2),
+    "",
+    "MEASURED VOCAL VARIETY (authoritative, computed on the speaker's device from the raw audio):",
+    input.voice ? JSON.stringify(input.voice, null, 2) : "(not available for this take)",
     "",
     "VERBATIM TRANSCRIPT:",
     input.transcript || "(no speech was captured)",
@@ -194,6 +213,8 @@ export async function POST(request: Request) {
     targetSecs?: number;
     transcript?: string;
     metrics?: Record<string, unknown>;
+    voice?: Record<string, unknown> | null;
+    frame?: string;
     model?: string;
   };
   try {
@@ -218,6 +239,8 @@ export async function POST(request: Request) {
         targetSecs: body.targetSecs ?? 60,
         transcript: body.transcript ?? "",
         metrics: body.metrics ?? {},
+        voice: body.voice ?? null,
+        frame: body.frame,
       }),
     },
   ];

@@ -208,6 +208,29 @@ export default function AnalyticsPage() {
                 value: rep.tier,
               }))}
             />
+            <TrendChart
+              title="Vocal variety"
+              hint="read on your device, higher is better"
+              better="up"
+              points={reps.flatMap((rep, index) =>
+                rep.varietyScore === null
+                  ? []
+                  : [{ label: `${label(index)} · ${rep.word}`, value: rep.varietyScore }],
+              )}
+            />
+            <TrendChart
+              title="Pitch movement"
+              hint="2.5–4 semitones is the band"
+              better="up"
+              suffix=" st"
+              decimals={1}
+              band={[2.5, 4]}
+              points={reps.flatMap((rep, index) =>
+                rep.pitchSdSt === null
+                  ? []
+                  : [{ label: `${label(index)} · ${rep.word}`, value: rep.pitchSdSt }],
+              )}
+            />
           </section>
 
           {comparisons && (

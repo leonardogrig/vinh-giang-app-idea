@@ -1,5 +1,8 @@
 /** Shared types for the mind-to-mouth trainer. */
 
+import type { FrameMode } from "./frame";
+import type { Prosody } from "./prosody";
+
 /** A single token from the ElevenLabs Scribe response. */
 export type ScribeWord = {
   text: string;
@@ -115,6 +118,13 @@ export type Attempt = {
   targetSecs: number;
   transcript: Transcript;
   metrics: Metrics;
+  /**
+   * Vocal variety measured on the device from the raw audio. Null when the
+   * take could not be decoded; absent on reps recorded before it existed.
+   */
+  prosody?: Prosody | null;
+  /** The on-screen frame the speaker had, if any. Absent on older reps. */
+  frame?: FrameMode;
   evaluation: Evaluation | null;
   scorecard: Scorecard;
   cost: RunCost;

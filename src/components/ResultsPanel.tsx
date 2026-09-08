@@ -3,7 +3,9 @@
 import { ScoreRing } from "@/components/Rings";
 import { MetricTiles } from "@/components/MetricTiles";
 import { TranscriptView } from "@/components/TranscriptView";
+import { VoiceCard } from "@/components/VoiceCard";
 import { formatClock, formatUsd, scoreTone } from "@/lib/format";
+import { FRAME_MODE_LABEL } from "@/lib/frame";
 import { verdictFor } from "@/lib/scoring";
 import { LEVELS, type Progress } from "@/lib/progression";
 import type { Attempt } from "@/lib/types";
@@ -89,6 +91,14 @@ export function ResultsPanel({
               <span className="text-xs text-ink-400">
                 {formatClock(metrics.durationSecs)} of {formatClock(attempt.targetSecs)}
               </span>
+              {attempt.frame && attempt.frame !== "none" && (
+                <span
+                  className="text-xs text-ink-500"
+                  title="Picture → Moment → Point was on screen for this rep"
+                >
+                  · {FRAME_MODE_LABEL[attempt.frame]}
+                </span>
+              )}
             </div>
 
             {attempt.wordDefinition && (
@@ -176,6 +186,8 @@ export function ResultsPanel({
       )}
 
       <MetricTiles metrics={metrics} />
+
+      <VoiceCard prosody={attempt.prosody} />
 
       {evaluation && evaluation.strengths.length > 0 && (
         <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] p-5">

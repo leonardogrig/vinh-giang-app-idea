@@ -18,6 +18,10 @@ export type RepPoint = {
   cleanRunSecs: number;
   wordCount: number;
   costUsd: number;
+  /** Null on reps recorded before the voice reading existed, or where it failed. */
+  varietyScore: number | null;
+  pitchSdSt: number | null;
+  frame: string | null;
 };
 
 export type Comparison = {
@@ -42,6 +46,8 @@ export type Analytics = {
     costUsd: number;
     level: number;
     levelName: string;
+    /** Mean vocal variety over the reps that have a reading, or null. */
+    avgVariety: number | null;
   };
   /** First few reps against the most recent few. Null until there are enough. */
   comparisons: Comparison[] | null;
@@ -60,6 +66,10 @@ const round = (value: number, places = 1) => {
   const factor = 10 ** places;
   return Math.round(value * factor) / factor;
 };
+
+/** The numeric values of one metric, skipping reps that do not carry it. */
+const numbers = (list: RepPoint[], key: keyof RepPoint) =>
+  list.map((rep) => rep[key]).filter((value): value is number => typeof value === "number");
 
 function tally(entries: { text: string }[]) {
   const counts = new Map<string, number>();
@@ -96,13 +106,19 @@ export function buildAnalytics(history: StoredAttempt[]): Analytics {
     wordCount: attempt.metrics.wordCount,
     costUsd:
       (attempt.cost?.transcription?.usd ?? 0) + (attempt.cost?.evaluation?.usd ?? 0),
+    varietyScore: attempt.prosody?.varietyScore ?? null,
+    pitchSdSt: attempt.prosody?.pitchSdSt ?? null,
+    frame: attempt.frame ?? null,
   }));
 
   const progress = deriveProgress(history);
   const scores = reps.map((rep) => rep.score);
+  const varietyScores = numbers(reps, "varietyScore");
 
   // Compare the opening reps against the most recent ones. Five a side once
-  // there are twelve reps, three a side before that.
+  // there are twelve reps, three a side before that. A metric that only some
+  // reps carry (the voice reading is newer than the app) needs at least two
+  // readings a side or its row is left out.
   const window = reps.length >= 12 ? 5 : 3;
   const comparisons =
     reps.length >= window * 2
@@ -128,10 +144,19 @@ export function buildAnalytics(history: StoredAttempt[]): Analytics {
             unit: "s",
           },
           { label: "Pace", key: "wpm" as const, better: "up" as const, unit: " wpm" },
-        ].map(({ label, key, better, unit }) => {
-          const first = round(mean(reps.slice(0, window).map((rep) => rep[key])));
-          const last = round(mean(reps.slice(-window).map((rep) => rep[key])));
-          return { label, first, last, delta: round(last - first), better, unit };
+          {
+            label: "Vocal variety",
+            key: "varietyScore" as const,
+            better: "up" as const,
+            unit: "",
+          },
+        ].flatMap(({ label, key, better, unit }) => {
+          const opening = numbers(reps.slice(0, window), key);
+          const recent = numbers(reps.slice(-window), key);
+          if (opening.length < 2 || recent.length < 2) return [];
+          const first = round(mean(opening));
+          const last = round(mean(recent));
+          return [{ label, first, last, delta: round(last - first), better, unit }];
         }) as Comparison[])
       : null;
 
@@ -153,6 +178,7 @@ export function buildAnalytics(history: StoredAttempt[]): Analytics {
       costUsd: reps.reduce((sum, rep) => sum + rep.costUsd, 0),
       level: progress.level,
       levelName: progress.name,
+      avgVariety: varietyScores.length ? Math.round(mean(varietyScores)) : null,
     },
     comparisons,
     comparisonWindow: window,
@@ -191,6 +217,7 @@ export function buildCoachPayload(history: StoredAttempt[]) {
       best_score: analytics.totals.bestScore,
       worst_score: analytics.totals.worstScore,
       total_speaking_seconds: analytics.totals.speakingSecs,
+      average_vocal_variety: analytics.totals.avgVariety,
       average_score_by_word_tier: analytics.byTier,
       most_used_fillers: analytics.fillerCounts,
       most_used_crutches: analytics.crutchCounts,
@@ -211,6 +238,10 @@ export function buildCoachPayload(history: StoredAttempt[]) {
       silence_percent: Math.round(attempt.metrics.silenceRatio * 100),
       longest_pause_seconds: attempt.metrics.longestPauseSecs,
       longest_clean_run_seconds: attempt.metrics.longestFluentRunSecs,
+      vocal_variety: attempt.prosody?.varietyScore ?? null,
+      pitch_variation_semitones: attempt.prosody?.pitchSdSt ?? null,
+      longest_flat_pitch_seconds: attempt.prosody?.longestFlatStretchSecs ?? null,
+      frame_shown: attempt.frame ?? null,
       verdict: attempt.evaluation?.verdict ?? null,
       transcript:
         index >= transcriptFrom ? attempt.transcript.text.slice(0, 1400) : undefined,

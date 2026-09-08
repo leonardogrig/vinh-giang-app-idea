@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { FrameStrip } from "@/components/FrameStrip";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { LevelBadge } from "@/components/LevelBadge";
 import { ResultsPanel } from "@/components/ResultsPanel";
@@ -9,9 +10,12 @@ import { SettingsBar } from "@/components/SettingsBar";
 import { TimerRing } from "@/components/Rings";
 import { WaveMeter } from "@/components/WaveMeter";
 import { useRecorder, type Recording } from "@/hooks/useRecorder";
+import { frameModeFor, type FrameMode } from "@/lib/frame";
 import { MIN_SCORABLE_WORDS, computeMetrics, metricsForPrompt } from "@/lib/metrics";
+import { prosodyForPrompt, type Prosody } from "@/lib/prosody";
 import { buildScorecard } from "@/lib/scoring";
 import { deriveProgress } from "@/lib/progression";
+import { decodeRecording, measureVoice } from "@/lib/voice";
 import { CATEGORY_LABEL, TIER_LABEL, randomWord, type WordCard } from "@/lib/words";
 import { formatClock, formatRelativeTime } from "@/lib/format";
 import {
@@ -55,6 +59,11 @@ export default function Home() {
   );
 
   const progress = useMemo(() => deriveProgress(history), [history]);
+  /** How much of the Picture → Moment → Point frame this rep gets. */
+  const frameMode = useMemo(
+    () => frameModeFor(progress.level, settings.frame),
+    [progress.level, settings.frame],
+  );
 
   const [autoStart, setAutoStart] = useState(true);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -97,6 +106,8 @@ export default function Home() {
       current: WordCard,
       transcript: Transcript,
       metrics: ReturnType<typeof computeMetrics>,
+      prosody: Prosody | null,
+      frame: FrameMode,
       signal?: AbortSignal,
     ): Promise<{
       evaluation: Evaluation | null;
@@ -126,6 +137,8 @@ export default function Home() {
           targetSecs: readSettings().targetSecs,
           transcript: transcript.text,
           metrics: metricsForPrompt(metrics),
+          voice: prosody ? prosodyForPrompt(prosody) : null,
+          frame,
           model: readSettings().model,
         }),
       });
@@ -163,6 +176,10 @@ export default function Home() {
       abortRef.current = controller;
       const { signal } = controller;
 
+      // Decode the take locally while the transcription round-trip runs; the
+      // voice reading itself waits for the word timings, which it uses for pace.
+      const decoding = decodeRecording(recording.blob);
+
       const form = new FormData();
       form.append("audio", recording.blob, recording.filename);
       form.append("durationSecs", String(recording.durationSecs));
@@ -189,6 +206,8 @@ export default function Home() {
       }
 
       const metrics = computeMetrics(transcript);
+      const prosody = await measureVoice(await decoding, transcript.words);
+      if (signal.aborted) return;
       setStep("grading");
 
       let evaluation: Evaluation | null = null;
@@ -199,6 +218,8 @@ export default function Home() {
           current,
           transcript,
           metrics,
+          prosody,
+          frameMode,
           signal,
         ));
       } catch (err) {
@@ -219,13 +240,15 @@ export default function Home() {
         targetSecs: readSettings().targetSecs,
         transcript,
         metrics,
+        prosody,
+        frame: frameMode,
         evaluation,
-        scorecard: buildScorecard(metrics, evaluation, readSettings().targetSecs),
+        scorecard: buildScorecard(metrics, evaluation, readSettings().targetSecs, prosody),
         cost: { transcription: transcriptionCost, evaluation: evaluationCost },
       });
       setPhase("results");
     },
-    [commit, grade, progress.level, word],
+    [commit, frameMode, grade, progress.level, word],
   );
 
   const onComplete = useCallback(
@@ -320,13 +343,20 @@ export default function Home() {
       },
       attempt.transcript,
       attempt.metrics,
+      attempt.prosody ?? null,
+      attempt.frame ?? "none",
     );
     setEvaluationError(error);
     if (evaluation) {
       commit({
         ...attempt,
         evaluation,
-        scorecard: buildScorecard(attempt.metrics, evaluation, attempt.targetSecs),
+        scorecard: buildScorecard(
+          attempt.metrics,
+          evaluation,
+          attempt.targetSecs,
+          attempt.prosody ?? null,
+        ),
         cost: { ...attempt.cost, evaluation: evaluationCost },
       });
     }
@@ -486,6 +516,14 @@ export default function Home() {
                   <p className="mx-auto mt-4 max-w-sm border-t border-ink-800 pt-4 text-sm leading-relaxed text-ink-300">
                     {word.definition}
                   </p>
+                  {(phase === "ready" || phase === "recording") && (
+                    <FrameStrip
+                      mode={frameMode}
+                      live={phase === "recording"}
+                      elapsed={recorder.elapsed}
+                      target={settings.targetSecs}
+                    />
+                  )}
                 </div>
               ) : (
                 <p className="mt-4 text-5xl font-medium tracking-tight text-ink-700">?????</p>
@@ -607,10 +645,14 @@ export default function Home() {
               <ul className="mt-6 space-y-3">
                 {[
                   { key: "transcribing", label: "Transcribing with ElevenLabs Scribe" },
+                  { key: "voice", label: "Reading pitch and loudness on this device" },
                   { key: "grading", label: `Grading with ${settings.model}` },
                 ].map((row) => {
-                  const active = step === row.key;
-                  const done = step === "grading" && row.key === "transcribing";
+                  // The voice reading runs alongside transcription, so the two
+                  // rows share a state.
+                  const stage = row.key === "voice" ? "transcribing" : row.key;
+                  const active = step === stage;
+                  const done = step === "grading" && stage === "transcribing";
                   return (
                     <li key={row.key} className="flex items-center gap-3 text-sm">
                       <span

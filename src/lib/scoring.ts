@@ -1,10 +1,16 @@
 import { MIN_SCORABLE_WORDS } from "./metrics";
+import type { Prosody } from "./prosody";
 import type { Evaluation, Metrics, Scorecard } from "./types";
 
-/** Weights sum to 100 when an LLM evaluation is available. */
+/**
+ * Relative weights. The total is normalised over whichever rows are present,
+ * so a rep without a voice reading or without a model evaluation still lands
+ * on a 100-point scale.
+ */
 const WEIGHTS = {
   fluency: 25,
   pacing: 15,
+  variety: 10,
   relevance: 20,
   structure: 20,
   insight: 20,
@@ -40,6 +46,7 @@ export function buildScorecard(
   metrics: Metrics,
   evaluation: Evaluation | null,
   targetSecs: number,
+  prosody: Prosody | null = null,
 ): Scorecard {
   const notes: string[] = [];
 
@@ -62,6 +69,20 @@ export function buildScorecard(
       detail: `${metrics.wpm} wpm · ${Math.round(metrics.silenceRatio * 100)}% silence · longest pause ${metrics.longestPauseSecs}s`,
     },
   ];
+
+  if (prosody) {
+    breakdown.push({
+      label: "Variety",
+      score: share(prosody.varietyScore, WEIGHTS.variety),
+      max: WEIGHTS.variety,
+      detail:
+        `${prosody.label} voice · pitch moved ${prosody.pitchSdSt} semitones` +
+        (prosody.paceCv !== null ? ` · pace swung ${Math.round(prosody.paceCv * 100)}%` : "") +
+        (prosody.longestFlatStretchSecs >= 5
+          ? ` · ${prosody.longestFlatStretchSecs}s stretch with a flat pitch`
+          : ""),
+    });
+  }
 
   if (evaluation) {
     breakdown.push(
