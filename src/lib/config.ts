@@ -3,7 +3,7 @@
  * the server default, and the model field in the app's settings overrides it
  * per request so you can swap models without a restart.
  */
-export const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash-0731";
+export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.6-luna";
 
 /** ElevenLabs batch transcription model. */
 export const DEFAULT_SCRIBE_MODEL = "scribe_v2";

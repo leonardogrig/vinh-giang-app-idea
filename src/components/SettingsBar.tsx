@@ -89,7 +89,7 @@ export function SettingsBar({
           spellCheck={false}
           onChange={(event) => onChange({ ...settings, model: event.target.value })}
           placeholder="provider/model"
-          title="Any OpenRouter model slug, e.g. deepseek/deepseek-v4-flash-0731"
+          title="Any OpenRouter model slug, e.g. openai/gpt-5.6-luna"
           className="min-w-0 flex-1 rounded-lg border border-ink-700 bg-ink-950 px-2.5 py-1.5 font-mono text-xs text-ink-100 outline-none transition placeholder:text-ink-600 focus:border-flame-500/60 disabled:opacity-40"
         />
       </label>
