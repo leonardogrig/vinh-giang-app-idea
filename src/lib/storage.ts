@@ -1,20 +1,11 @@
 "use client";
 
-import { DEFAULT_OPENROUTER_MODEL } from "./config";
 import { FRAME_SETTINGS, type FrameSetting } from "./frame";
+import { DEFAULT_SETTINGS, type Settings } from "./settings";
 import type { Attempt, StoredAttempt } from "./types";
 
-const HISTORY_KEY = "mind-mouth:history:v1";
-const SETTINGS_KEY = "mind-mouth:settings:v1";
-const HISTORY_LIMIT = 50;
-
-export type Settings = { targetSecs: number; model: string; frame: FrameSetting };
-
-export const DEFAULT_SETTINGS: Settings = {
-  targetSecs: 60,
-  model: DEFAULT_OPENROUTER_MODEL,
-  frame: "auto",
-};
+export type { Settings };
+export { DEFAULT_SETTINGS };
 
 const EMPTY_HISTORY: StoredAttempt[] = [];
 
@@ -38,84 +29,87 @@ export function toStored(attempt: Attempt): StoredAttempt {
   };
 }
 
-function read<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function write(key: string, value: unknown) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Out of quota. Word timings are the bulk of the payload, so drop them from
-    // all but the ten newest reps and try once more before giving up.
-    if (!Array.isArray(value)) return;
-    try {
-      const trimmed = value.map((item, index) =>
-        index < 10 || !item?.transcript
-          ? item
-          : { ...item, transcript: { ...item.transcript, words: [] } },
-      );
-      window.localStorage.setItem(key, JSON.stringify(trimmed));
-    } catch {
-      // Private mode or genuinely full — persistence is a convenience.
-    }
-  }
-}
-
 /**
- * A tiny external store so localStorage can be read through useSyncExternalStore
- * rather than a mount effect, which keeps hydration honest: the server snapshot
- * is always empty and React swaps in the real values after hydration.
+ * An external store, read through useSyncExternalStore, now backed by the
+ * Postgres API instead of localStorage. The cache is hydrated asynchronously on
+ * first use: the server snapshot (and the pre-load client snapshot) is the
+ * fallback, and React swaps in the real values once the fetch resolves. Writes
+ * update the cache optimistically and persist in the background — the UI stays
+ * fully synchronous, exactly as it was with localStorage.
  */
-function createStore<T>(key: string, fallback: T, serverSnapshot: T) {
-  let cache: T | null = null;
+function createStore<T>(fallback: T, load: () => Promise<T>) {
+  let cache: T = fallback;
+  let loaded = false;
+  let loading: Promise<void> | null = null;
   const listeners = new Set<() => void>();
 
-  const getSnapshot = () => {
-    if (cache === null) {
-      const loaded = read<T>(key, fallback);
-      cache = loaded;
-    }
-    return cache;
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+
+  const ensureLoaded = () => {
+    if (loaded || loading || typeof window === "undefined") return;
+    loading = load()
+      .then((value) => {
+        cache = value;
+        loaded = true;
+        notify();
+      })
+      .catch(() => {
+        // Leave the fallback in place; persistence is best-effort.
+      })
+      .finally(() => {
+        loading = null;
+      });
   };
 
   return {
     subscribe(listener: () => void) {
       listeners.add(listener);
+      ensureLoaded();
       return () => {
         listeners.delete(listener);
       };
     },
-    getSnapshot,
-    getServerSnapshot: () => serverSnapshot,
+    getSnapshot: () => cache,
+    getServerSnapshot: () => fallback,
+    get: () => cache,
     set(next: T) {
       cache = next;
-      write(key, next);
-      for (const listener of listeners) listener();
-    },
-    reset() {
-      cache = fallback;
-      if (typeof window !== "undefined") {
-        try {
-          window.localStorage.removeItem(key);
-        } catch {
-          // ignore
-        }
-      }
-      for (const listener of listeners) listener();
+      loaded = true;
+      notify();
     },
   };
 }
 
-const historyStore = createStore<StoredAttempt[]>(HISTORY_KEY, EMPTY_HISTORY, EMPTY_HISTORY);
-const settingsStore = createStore<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS, DEFAULT_SETTINGS);
+async function loadHistory(): Promise<StoredAttempt[]> {
+  const response = await fetch("/api/history", { cache: "no-store" });
+  if (!response.ok) throw new Error("Failed to load history");
+  const data = await response.json();
+  return Array.isArray(data) ? (data as StoredAttempt[]) : EMPTY_HISTORY;
+}
+
+async function loadSettings(): Promise<Settings> {
+  const response = await fetch("/api/settings", { cache: "no-store" });
+  if (!response.ok) throw new Error("Failed to load settings");
+  return normalizeSettings((await response.json()) as Partial<Settings>);
+}
+
+function normalizeSettings(stored: Partial<Settings> | null | undefined): Settings {
+  return {
+    targetSecs: Number(stored?.targetSecs) || DEFAULT_SETTINGS.targetSecs,
+    model:
+      typeof stored?.model === "string" && stored.model.trim()
+        ? stored.model.trim()
+        : DEFAULT_SETTINGS.model,
+    frame: FRAME_SETTINGS.includes(stored?.frame as FrameSetting)
+      ? (stored!.frame as FrameSetting)
+      : DEFAULT_SETTINGS.frame,
+  };
+}
+
+const historyStore = createStore<StoredAttempt[]>(EMPTY_HISTORY, loadHistory);
+const settingsStore = createStore<Settings>(DEFAULT_SETTINGS, loadSettings);
 
 export const historySource = {
   subscribe: historyStore.subscribe,
@@ -131,33 +125,36 @@ export const settingsSource = {
 
 /** Latest settings outside of render, for use inside async handlers. */
 export function readSettings(): Settings {
-  const stored = settingsStore.getSnapshot();
-  return {
-    targetSecs: Number(stored?.targetSecs) || DEFAULT_SETTINGS.targetSecs,
-    model:
-      typeof stored?.model === "string" && stored.model.trim()
-        ? stored.model.trim()
-        : DEFAULT_SETTINGS.model,
-    frame: FRAME_SETTINGS.includes(stored?.frame as FrameSetting)
-      ? stored.frame
-      : DEFAULT_SETTINGS.frame,
-  };
+  return normalizeSettings(settingsStore.get());
 }
 
 export function saveSettings(next: Settings) {
-  settingsStore.set(next);
+  const normalized = normalizeSettings(next);
+  settingsStore.set(normalized);
+  void fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(normalized),
+  }).catch(() => {});
 }
 
 export function saveAttempt(attempt: Attempt) {
   const stored = toStored(attempt);
-  const previous = historyStore.getSnapshot();
-  historyStore.set([stored, ...previous.filter((item) => item.id !== attempt.id)].slice(0, HISTORY_LIMIT));
+  const previous = historyStore.get();
+  historyStore.set([stored, ...previous.filter((item) => item.id !== attempt.id)]);
+  void fetch("/api/history", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(stored),
+  }).catch(() => {});
 }
 
 export function deleteAttempt(id: string) {
-  historyStore.set(historyStore.getSnapshot().filter((item) => item.id !== id));
+  historyStore.set(historyStore.get().filter((item) => item.id !== id));
+  void fetch(`/api/history?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
 }
 
 export function clearHistory() {
-  historyStore.reset();
+  historyStore.set(EMPTY_HISTORY);
+  void fetch("/api/history", { method: "DELETE" }).catch(() => {});
 }
